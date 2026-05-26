@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Search, ShoppingCart, Clock } from "lucide-react";
+import { Home, Search, ShoppingCart, Clock, User } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -15,9 +15,9 @@ export function BottomNav() {
 
   const navItems = [
     { name: "Home", href: "/home", icon: Home },
-    { name: "Search", href: "/search", icon: Search },
     { name: "Cart", href: "/cart", icon: ShoppingCart },
     { name: "Orders", href: "/orders", icon: Clock },
+    { name: "Profile", href: "/profile", icon: User },
   ];
 
   return (

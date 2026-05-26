@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { LayoutDashboard, Users, Package, LogOut, ShoppingCart, BarChart3, AlertTriangle } from "lucide-react";
 
 export default function AdminLayout({
@@ -10,6 +11,7 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   const navItems = [
     { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
@@ -19,6 +21,12 @@ export default function AdminLayout({
     { name: "Reports", href: "/admin/reports", icon: BarChart3 },
     { name: "Disputes", href: "/admin/disputes", icon: AlertTriangle },
   ];
+
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -52,10 +60,10 @@ export default function AdminLayout({
         </nav>
 
         <div className="p-4 border-t border-gray-800">
-          <Link href="/login" className="flex items-center px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition-colors">
+          <button onClick={handleLogout} className="w-full flex items-center px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition-colors text-left">
             <LogOut size={20} className="mr-3" />
             Logout
-          </Link>
+          </button>
         </div>
       </aside>
 

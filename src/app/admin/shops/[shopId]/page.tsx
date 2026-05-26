@@ -20,7 +20,7 @@ export default function AdminShopOversightPage() {
       const { data: shopData } = await supabase
         .from("shops")
         .select("*, profiles(full_name, phone, email)")
-        .eq("id", shopId)
+        .eq("id", shopId as string)
         .single();
 
       if (shopData) {
@@ -30,7 +30,7 @@ export default function AdminShopOversightPage() {
         const { data: invData } = await supabase
           .from("shop_inventory")
           .select("*, products(*)")
-          .eq("shop_id", shopId)
+          .eq("shop_id", shopId as string)
           .order("updated_at", { ascending: false });
           
         if (invData) setInventory(invData);

@@ -39,10 +39,11 @@ export default function ShopInventoryPage() {
         setLoading(false);
         return;
       }
-      setShop(shopData);
+      const activeShop = shopData as any;
+      setShop(activeShop);
 
       // Get inventory
-      fetchInventory(shopData.id);
+      fetchInventory(activeShop.id);
 
       // Get master catalog
       const { data: catalogData } = await supabase
@@ -74,8 +75,7 @@ export default function ShopInventoryPage() {
   const updateStock = async (invId: string, newQty: number) => {
     if (newQty < 0) return;
     const supabase = createClient();
-    const { error } = await supabase
-      .from("shop_inventory")
+    const { error } = await (supabase.from("shop_inventory") as any)
       .update({ stock_quantity: newQty, updated_at: new Date().toISOString() })
       .eq("id", invId);
 
@@ -100,8 +100,7 @@ export default function ShopInventoryPage() {
 
     setLoading(true);
     const supabase = createClient();
-    const { data, error } = await supabase
-      .from("shop_inventory")
+    const { data, error } = await (supabase.from("shop_inventory") as any)
       .insert({
         shop_id: shop.id,
         product_id: selectedProductId,

@@ -29,7 +29,7 @@ export default function AdminReportsPage() {
         const dailyMap: Record<string, { count: number, revenue: number }> = {};
         let rev = 0;
         
-        orders.forEach(order => {
+        orders.forEach((order: any) => {
           if (order.status !== 'cancelled' && order.status !== 'rejected') {
             rev += Number(order.total_amount);
           }
@@ -61,8 +61,8 @@ export default function AdminReportsPage() {
       if (orderItems) {
         const productMap: Record<string, { name: string, category: string, quantity: number }> = {};
         
-        orderItems.forEach(item => {
-          const p = item.products as any;
+        orderItems.forEach((item: any) => {
+          const p = item.products;
           if (!p) return;
           
           const name = p.name;

@@ -54,7 +54,7 @@ export default function DeliveryDashboard() {
 
       if (data) {
         // Filter out orders assigned to someone else
-        const validOrders = data.filter(o => 
+        const validOrders = data.filter((o: any) => 
           (o.status === 'ready' && !o.delivery_agent_id) || 
           (o.delivery_agent_id === userId)
         );
@@ -87,8 +87,7 @@ export default function DeliveryDashboard() {
     const newStatus = !profile.is_online;
     
     const supabase = createClient();
-    const { error } = await supabase
-      .from("profiles")
+    const { error } = await (supabase.from("profiles") as any)
       .update({ is_online: newStatus })
       .eq("id", profile.id);
       
@@ -102,8 +101,7 @@ export default function DeliveryDashboard() {
     const supabase = createClient();
     
     // Assign agent but keep status 'ready' until they arrive
-    const { error } = await supabase
-      .from("orders")
+    const { error } = await (supabase.from("orders") as any)
       .update({ 
         delivery_agent_id: user.id
       })
@@ -119,8 +117,7 @@ export default function DeliveryDashboard() {
 
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     const supabase = createClient();
-    const { error } = await supabase
-      .from("orders")
+    const { error } = await (supabase.from("orders") as any)
       .update({ status: newStatus })
       .eq("id", orderId);
       
@@ -133,8 +130,7 @@ export default function DeliveryDashboard() {
     const supabase = createClient();
     
     // 1. Mark order as delivered
-    const { error: orderError } = await supabase
-      .from("orders")
+    const { error: orderError } = await (supabase.from("orders") as any)
       .update({ status: 'delivered' })
       .eq("id", order.id);
       
@@ -149,8 +145,7 @@ export default function DeliveryDashboard() {
       const commissionRate = 0.10; // 10% platform fee
       const shopEarnings = order.total_amount * (1 - commissionRate);
       
-      await supabase
-        .from("earnings")
+      await (supabase.from("earnings") as any)
         .insert({
           user_id: shopOwnerId,
           amount: shopEarnings,

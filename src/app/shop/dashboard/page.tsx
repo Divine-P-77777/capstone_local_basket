@@ -4,13 +4,21 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { format } from "date-fns";
-import { PackageOpen, Check, X, Clock, ShoppingBag } from "lucide-react";
+import { PackageOpen, Check, X, Clock, ShoppingBag, Store, MapPin, Phone, Building } from "lucide-react";
 
 export default function ShopDashboard() {
   const router = useRouter();
+  const [user, setUser] = useState<any>(null);
   const [shop, setShop] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Registration Form State
+  const [registering, setRegistering] = useState(false);
+  const [shopName, setShopName] = useState("");
+  const [shopAddress, setShopAddress] = useState("");
+  const [shopPhone, setShopPhone] = useState("");
+  const [gstin, setGstin] = useState("");
 
   useEffect(() => {
     const supabase = createClient();
@@ -21,6 +29,7 @@ export default function ShopDashboard() {
         router.push("/login?redirect=/shop/dashboard");
         return;
       }
+      setUser(session.user);
 
       // 1. Get the shop owned by this user
       const { data: shopData } = await supabase
@@ -30,15 +39,20 @@ export default function ShopDashboard() {
         .single();
 
       if (!shopData) {
-        // User has no shop, maybe they need to register one, or they aren't a shop owner
+        // User has no shop, we will show the registration form
         setLoading(false);
         return;
       }
       
-      setShop(shopData);
+      const activeShop = shopData as any;
+      setShop(activeShop);
 
-      // 2. Get active orders for this shop
-      fetchOrders(shopData.id);
+      // 2. Get active orders for this shop (only if approved)
+      if (activeShop.is_approved) {
+        fetchOrders(activeShop.id);
+      } else {
+        setLoading(false);
+      }
     }
 
     async function fetchOrders(shopId: string) {
@@ -67,7 +81,6 @@ export default function ShopDashboard() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'orders', filter: `shop_id=eq.${shopId}` },
           () => {
-            // Re-fetch orders on any change
             fetchOrders(shopId);
           }
         )
@@ -83,8 +96,7 @@ export default function ShopDashboard() {
 
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     const supabase = createClient();
-    await supabase
-      .from("orders")
+    await (supabase.from("orders") as any)
       .update({ status: newStatus })
       .eq("id", orderId);
       
@@ -92,9 +104,145 @@ export default function ShopDashboard() {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o).filter(o => ["pending", "accepted", "ready"].includes(o.status)));
   };
 
-  if (loading) return <div className="p-8 text-center">Loading dashboard...</div>;
-  if (!shop) return <div className="p-8 text-center text-red-500">No shop found for your account.</div>;
+  const handleRegisterShop = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shopName || !shopAddress || !shopPhone) return;
 
+    setRegistering(true);
+    const supabase = createClient();
+
+    const { data, error } = await supabase
+      .from("shops")
+      .insert({
+        owner_id: user.id,
+        shop_name: shopName,
+        address: shopAddress,
+        contact_phone: shopPhone,
+        gstin: gstin || null,
+        is_approved: false // requires admin approval
+      } as any)
+      .select()
+      .single();
+
+    if (!error && data) {
+      setShop(data);
+    } else {
+      alert(error?.message || "Failed to register shop. Please try again.");
+    }
+    setRegistering(false);
+  };
+
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading dashboard...</div>;
+
+  // Case 1: No Shop Registered Yet
+  if (!shop) {
+    return (
+      <div className="max-w-xl mx-auto p-4 py-8">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
+          <div className="flex flex-col items-center text-center mb-8">
+            <div className="w-16 h-16 bg-brand-light/20 text-brand rounded-2xl flex items-center justify-center mb-4">
+              <Store size={32} />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">Register Your Shop</h2>
+            <p className="text-gray-500 text-sm mt-1">Register your retail store to start receiving customer orders.</p>
+          </div>
+
+          <form onSubmit={handleRegisterShop} className="space-y-5">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Shop Name</label>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={shopName} 
+                  onChange={e => setShopName(e.target.value)} 
+                  required 
+                  placeholder="e.g. Fresh Grocers & Co."
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all text-sm"
+                />
+                <Store size={18} className="absolute left-3 top-3.5 text-gray-400" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Shop Address</label>
+              <div className="relative">
+                <textarea 
+                  value={shopAddress} 
+                  onChange={e => setShopAddress(e.target.value)} 
+                  required 
+                  placeholder="e.g. Shop 42, Main Market Road, Sector 5"
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all text-sm min-h-[80px] resize-none"
+                />
+                <MapPin size={18} className="absolute left-3 top-3.5 text-gray-400" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Contact Phone</label>
+              <div className="relative">
+                <input 
+                  type="tel" 
+                  value={shopPhone} 
+                  onChange={e => setShopPhone(e.target.value)} 
+                  required 
+                  placeholder="e.g. +91 98765 43210"
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all text-sm"
+                />
+                <Phone size={18} className="absolute left-3 top-3.5 text-gray-400" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">GSTIN (Optional)</label>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={gstin} 
+                  onChange={e => setGstin(e.target.value)} 
+                  placeholder="e.g. 07AAAAA1111A1Z1"
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all text-sm"
+                />
+                <Building size={18} className="absolute left-3 top-3.5 text-gray-400" />
+              </div>
+            </div>
+
+            <button 
+              type="submit" 
+              disabled={registering}
+              className="w-full bg-brand text-white font-bold py-3.5 rounded-xl shadow-sm hover:bg-brand-dark transition-all active:scale-[0.98] disabled:opacity-70 mt-2 flex items-center justify-center"
+            >
+              {registering ? "Registering Shop..." : "Submit Registration"}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // Case 2: Shop Pending Admin Approval
+  if (!shop.is_approved) {
+    return (
+      <div className="max-w-md mx-auto p-4 py-12 text-center">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 flex flex-col items-center">
+          <div className="w-16 h-16 bg-yellow-50 text-yellow-500 rounded-full flex items-center justify-center mb-6">
+            <Clock size={32} />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">Shop Registration Received</h2>
+          <p className="text-gray-600 text-sm leading-relaxed mb-6">
+            Thank you for registering <strong>{shop.shop_name}</strong>! Your application is currently under review by our administration team. 
+          </p>
+          <div className="w-full bg-gray-50 rounded-xl p-4 text-xs text-left border border-gray-100 space-y-2 mb-4">
+            <p><span className="font-bold text-gray-500 uppercase tracking-wider mr-2">Shop:</span> {shop.shop_name}</p>
+            <p><span className="font-bold text-gray-500 uppercase tracking-wider mr-2">Address:</span> {shop.address}</p>
+            <p><span className="font-bold text-gray-500 uppercase tracking-wider mr-2">Status:</span> Pending Review</p>
+          </div>
+          <p className="text-xs text-gray-400">This usually takes 1-2 business days. We will notify you once approved.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Case 3: Shop is Approved - Show Dashboard
   const pendingOrders = orders.filter(o => o.status === "pending");
   const acceptedOrders = orders.filter(o => o.status === "accepted");
   const readyOrders = orders.filter(o => o.status === "ready");

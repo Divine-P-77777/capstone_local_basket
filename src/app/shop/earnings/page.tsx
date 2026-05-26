@@ -29,8 +29,9 @@ export default function ShopEarningsPage() {
         .order("created_at", { ascending: false });
 
       if (data) {
-        setEarnings(data);
-        setTotalEarnings(data.reduce((sum, item) => sum + Number(item.amount), 0));
+        const earningsData = data as any[];
+        setEarnings(earningsData);
+        setTotalEarnings(earningsData.reduce((sum, item: any) => sum + Number(item.amount), 0));
       }
       setLoading(false);
     }
