@@ -13,6 +13,11 @@ export default function ShopInventoryPage() {
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
 
+  const [addMode, setAddMode] = useState<"catalog" | "custom">("catalog");
+  const [customName, setCustomName] = useState("");
+  const [customCategory, setCustomCategory] = useState("Grocery");
+  const [customUnit, setCustomUnit] = useState("1kg");
+
   // New inventory item form
   const [selectedProductId, setSelectedProductId] = useState("");
   const [price, setPrice] = useState("");
@@ -90,20 +95,57 @@ export default function ShopInventoryPage() {
 
   const handleAddInventory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!shop || !selectedProductId || !price) return;
-
-    // Check if already in inventory
-    if (inventory.some(i => i.product_id === selectedProductId)) {
-      alert("This product is already in your inventory!");
-      return;
-    }
+    if (!shop || !price) return;
 
     setLoading(true);
     const supabase = createClient();
-    const { data, error } = await (supabase.from("shop_inventory") as any)
+    let productId = selectedProductId;
+
+    if (addMode === "custom") {
+      if (!customName || !customCategory || !customUnit) {
+        alert("Please fill in all custom product fields.");
+        setLoading(false);
+        return;
+      }
+
+      // Insert custom product into products table
+      const { data: newProduct, error: prodError } = await supabase
+        .from("products")
+        .insert({
+          name: customName,
+          category: customCategory,
+          unit: customUnit,
+          image_url: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=200", // premium generic food placeholder
+          is_active: true
+        } as any)
+        .select()
+        .single();
+
+      if (prodError || !newProduct) {
+        alert("Error creating custom product: " + (prodError?.message || "Unknown error"));
+        setLoading(false);
+        return;
+      }
+      productId = (newProduct as any).id;
+    } else {
+      if (!selectedProductId) {
+        alert("Please select a product from the catalog.");
+        setLoading(false);
+        return;
+      }
+
+      // Check if already in inventory
+      if (inventory.some(i => i.product_id === selectedProductId)) {
+        alert("This product is already in your inventory!");
+        setLoading(false);
+        return;
+      }
+    }
+
+    const { error } = await (supabase.from("shop_inventory") as any)
       .insert({
         shop_id: shop.id,
-        product_id: selectedProductId,
+        product_id: productId,
         price: parseFloat(price),
         stock_quantity: parseInt(stockQuantity) || 0
       });
@@ -111,11 +153,12 @@ export default function ShopInventoryPage() {
     if (!error) {
       setIsAdding(false);
       setSelectedProductId("");
+      setCustomName("");
       setPrice("");
       setStockQuantity("10");
       fetchInventory(shop.id);
     } else {
-      alert("Error adding product to inventory");
+      alert("Error adding product to inventory: " + error.message);
     }
     setLoading(false);
   };
@@ -140,51 +183,126 @@ export default function ShopInventoryPage() {
 
       {isAdding && (
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm mb-8 animate-in fade-in slide-in-from-top-4">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Add from Master Catalog</h2>
-          <form onSubmit={handleAddInventory} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            <div className="md:col-span-2">
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Select Product</label>
-              <select 
-                value={selectedProductId} 
-                onChange={e => setSelectedProductId(e.target.value)} 
-                required
-                className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-brand outline-none bg-white"
-              >
-                <option value="">-- Choose Product --</option>
-                {masterCatalog.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
-                ))}
-              </select>
+          <div className="flex border-b border-gray-100 mb-6">
+            <button
+              type="button"
+              onClick={() => setAddMode("catalog")}
+              className={`pb-3 pr-4 font-bold text-sm transition-all border-b-2 ${
+                addMode === "catalog"
+                  ? "border-brand text-brand"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Add from Master Catalog
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddMode("custom")}
+              className={`pb-3 px-4 font-bold text-sm transition-all border-b-2 ${
+                addMode === "custom"
+                  ? "border-brand text-brand"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Create Custom Product
+            </button>
+          </div>
+
+          <form onSubmit={handleAddInventory} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+              {addMode === "catalog" ? (
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Select Product</label>
+                  <select 
+                    value={selectedProductId} 
+                    onChange={e => setSelectedProductId(e.target.value)} 
+                    required={addMode === "catalog"}
+                    className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-brand outline-none bg-white text-gray-900"
+                  >
+                    <option value="">-- Choose Product --</option>
+                    {masterCatalog.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Product Name</label>
+                    <input 
+                      type="text" 
+                      value={customName} 
+                      onChange={e => setCustomName(e.target.value)} 
+                      required={addMode === "custom"}
+                      placeholder="e.g. Fresh Red Strawberries"
+                      className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-brand outline-none bg-white text-gray-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Category</label>
+                    <select 
+                      value={customCategory} 
+                      onChange={e => setCustomCategory(e.target.value)} 
+                      required={addMode === "custom"}
+                      className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-brand outline-none bg-white text-gray-900"
+                    >
+                      <option value="Grocery">Grocery</option>
+                      <option value="Dairy">Dairy</option>
+                      <option value="Snacks">Snacks</option>
+                      <option value="Cleaning">Cleaning</option>
+                      <option value="Personal Care">Personal Care</option>
+                      <option value="Fruits & Vegetables">Fruits & Vegetables</option>
+                      <option value="Bakery">Bakery</option>
+                      <option value="Beverages">Beverages</option>
+                      <option value="Others">Others</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Unit</label>
+                    <input 
+                      type="text" 
+                      value={customUnit} 
+                      onChange={e => setCustomUnit(e.target.value)} 
+                      required={addMode === "custom"}
+                      placeholder="e.g. 250g, 1L, 1 packet"
+                      className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-brand outline-none bg-white text-gray-900"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Your Price (₹)</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  min="0"
+                  value={price} 
+                  onChange={e => setPrice(e.target.value)} 
+                  required 
+                  className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-brand outline-none bg-white text-gray-900"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Initial Stock</label>
+                <input 
+                  type="number" 
+                  min="0"
+                  value={stockQuantity} 
+                  onChange={e => setStockQuantity(e.target.value)} 
+                  required 
+                  className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-brand outline-none bg-white text-gray-900"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Your Price (₹)</label>
-              <input 
-                type="number" 
-                step="0.01"
-                min="0"
-                value={price} 
-                onChange={e => setPrice(e.target.value)} 
-                required 
-                className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-brand outline-none"
-                placeholder="0.00"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Initial Stock</label>
-              <input 
-                type="number" 
-                min="0"
-                value={stockQuantity} 
-                onChange={e => setStockQuantity(e.target.value)} 
-                required 
-                className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-1 focus:ring-brand outline-none"
-              />
-            </div>
-            <div className="md:col-span-4 mt-2">
+
+            <div className="pt-2">
               <button 
                 type="submit" 
-                disabled={loading || !selectedProductId || !price}
-                className="bg-gray-900 text-white font-bold py-2.5 px-8 rounded-lg shadow-sm hover:bg-black transition-colors disabled:opacity-50"
+                disabled={loading}
+                className="bg-brand text-white font-bold py-2.5 px-8 rounded-lg shadow-sm hover:bg-brand-dark transition-colors disabled:opacity-50"
               >
                 <Save size={18} className="inline mr-2" /> Save to Inventory
               </button>

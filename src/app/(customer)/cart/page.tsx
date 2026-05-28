@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCart } from "@/store/useCart";
 import { CartItemCard } from "@/components/customer/CartItemCard";
 import { createClient } from "@/lib/supabase/client";
-import { ArrowLeft, MapPin, ShoppingBag } from "lucide-react";
+import { ArrowLeft, MapPin, ShoppingBag, Navigation } from "lucide-react";
 
 export default function CartPage() {
   const router = useRouter();
@@ -14,10 +14,46 @@ export default function CartPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [gpsDetected, setGpsDetected] = useState(false);
+  const [detectingGps, setDetectingGps] = useState(false);
 
   const cartTotal = getTotal();
   const deliveryFee = 20; // Fixed delivery fee for now
   const grandTotal = cartTotal > 0 ? cartTotal + deliveryFee : 0;
+
+  // Function to detect GPS location and automatically reverse-geocode to fill address text
+  const detectGPSAndFillAddress = () => {
+    if (!navigator.geolocation) {
+      console.warn("Geolocation is not supported by your browser.");
+      return;
+    }
+    setDetectingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        setCoords({ lat, lon });
+        setGpsDetected(true);
+        setDetectingGps(false);
+
+        // Fetch address text from Nominatim OSM Reverse Geocoding API
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+          const data = await res.json();
+          if (data && data.display_name) {
+            setAddress(data.display_name);
+          }
+        } catch (err) {
+          console.error("Reverse geocoding failed:", err);
+        }
+      },
+      (error) => {
+        console.error("GPS detection failed:", error);
+        setDetectingGps(false);
+      }
+    );
+  };
 
   useEffect(() => {
     async function getUser() {
@@ -40,6 +76,9 @@ export default function CartPage() {
       }
     }
     getUser();
+    
+    // Automatically detect GPS location and fill address on page load
+    detectGPSAndFillAddress();
   }, []);
 
   const handlePlaceOrder = async () => {
@@ -62,7 +101,27 @@ export default function CartPage() {
     try {
       const supabase = createClient();
 
-      // 1. Create the order
+      // Retrieve GPS / Geocoding coordinates for driver direction assistant
+      let finalLocation = "POINT(77.0266 28.4595)"; // Default coordinates fallback
+      
+      if (coords) {
+        finalLocation = `POINT(${coords.lon} ${coords.lat})`;
+      } else {
+        // Fetch coordinates from the trusted, free Nominatim OpenStreetMap API
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+          const data = await res.json();
+          if (data && data.length > 0) {
+            const lat = parseFloat(data[0].lat);
+            const lon = parseFloat(data[0].lon);
+            finalLocation = `POINT(${lon} ${lat})`;
+          }
+        } catch (geocodeErr) {
+          console.error("Geocoding address failed, falling back to default:", geocodeErr);
+        }
+      }
+
+      // 1. Create the order with coordinates
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
@@ -71,6 +130,7 @@ export default function CartPage() {
           total_amount: grandTotal,
           status: "pending",
           delivery_address: address,
+          customer_location: finalLocation,
         } as any)
         .select()
         .single();
@@ -133,17 +193,34 @@ export default function CartPage() {
 
       <div className="p-4 flex-1">
         {/* Delivery Address */}
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4">
-          <div className="flex items-center text-gray-900 font-bold mb-3">
-            <MapPin size={18} className="mr-2 text-brand" />
-            Delivery Address
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-4">
+          <div className="flex items-center justify-between text-gray-900 font-bold mb-3">
+            <div className="flex items-center">
+              <MapPin size={18} className="mr-2 text-brand" />
+              Delivery Address
+            </div>
+            <button
+              type="button"
+              onClick={detectGPSAndFillAddress}
+              disabled={detectingGps}
+              className="text-xs text-brand hover:text-brand-dark font-bold flex items-center gap-1.5 transition-all active:scale-[0.98] disabled:opacity-70 bg-brand-light/10 hover:bg-brand-light/20 px-3 py-1.5 rounded-xl border border-brand/10 cursor-pointer"
+            >
+              <Navigation size={12} className={detectingGps ? "animate-spin" : ""} />
+              {detectingGps ? "Detecting..." : gpsDetected ? "GPS Detected!" : "Locate Me"}
+            </button>
           </div>
           <textarea
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder="Enter your full delivery address..."
-            className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all resize-none min-h-[80px]"
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm text-gray-900 outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all resize-none min-h-[80px]"
           />
+          {gpsDetected && coords && (
+            <p className="text-[10px] text-green-700 mt-2 font-semibold flex items-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 animate-pulse"></span>
+              GPS coordinates loaded: {coords.lat.toFixed(4)}, {coords.lon.toFixed(4)}
+            </p>
+          )}
         </div>
 
         {/* Cart Items */}

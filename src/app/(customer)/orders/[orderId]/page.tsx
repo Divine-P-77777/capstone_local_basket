@@ -98,12 +98,13 @@ export default function OrderTrackingPage() {
     { key: 'pending', label: 'Order Placed' },
     { key: 'accepted', label: 'Shop Accepted' },
     { key: 'ready', label: 'Ready for Pickup' },
+    { key: 'arrived_at_shop', label: 'Agent Arrived at Shop' },
     { key: 'picked_up', label: 'Out for Delivery' },
     { key: 'delivered', label: 'Delivered' }
   ];
 
   const currentStepIndex = steps.findIndex(s => s.key === order.status);
-  const activeStep = currentStepIndex >= 0 ? currentStepIndex : (order.status === 'delivered' ? 4 : 0);
+  const activeStep = currentStepIndex >= 0 ? currentStepIndex : (order.status === 'delivered' ? steps.length - 1 : 0);
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 pb-20 md:pb-8">
@@ -172,8 +173,9 @@ export default function OrderTrackingPage() {
                           {index === 0 && "Waiting for shop to confirm"}
                           {index === 1 && "Shop is preparing your items"}
                           {index === 2 && "Waiting for delivery partner"}
-                          {index === 3 && "Partner is on the way to you"}
-                          {index === 4 && "Enjoy your order!"}
+                          {index === 3 && "Agent is collecting your order"}
+                          {index === 4 && "Partner is on the way to you"}
+                          {index === 5 && "Enjoy your order!"}
                         </p>
                       )}
                     </div>

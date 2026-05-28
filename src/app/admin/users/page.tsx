@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Check, Store, User as UserIcon } from "lucide-react";
+import { Check, Store, User as UserIcon, Eye } from "lucide-react";
 import Link from "next/link";
 
 export default function AdminUsersPage() {
@@ -44,6 +44,8 @@ export default function AdminUsersPage() {
 
     if (!error) {
       setShops(prev => prev.map(s => s.id === shopId ? { ...s, is_approved: true } : s));
+    } else {
+      alert("Error approving shop: " + error.message);
     }
   };
 
@@ -55,6 +57,8 @@ export default function AdminUsersPage() {
 
     if (!error) {
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_approved: true } : u));
+    } else {
+      alert("Error approving delivery agent: " + error.message);
     }
   };
 
@@ -74,29 +78,55 @@ export default function AdminUsersPage() {
       {pendingShops.length > 0 && (
         <div className="mb-10">
           <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-            <span className="w-2 h-2 rounded-full bg-yellow-500 mr-2"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 mr-2 shadow-sm animate-pulse"></span>
             Pending Shop Approvals
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {pendingShops.map(shop => (
-              <div key={shop.id} className="bg-white p-5 rounded-xl border-2 border-yellow-100 shadow-sm relative overflow-hidden">
-                <div className="absolute top-0 right-0 bg-yellow-100 text-yellow-800 text-xs font-bold px-3 py-1 rounded-bl-lg">
+              <div key={shop.id} className="bg-white p-6 rounded-2xl border border-yellow-200/60 shadow-sm relative overflow-hidden flex flex-col justify-between hover:shadow-md transition-all duration-200 group">
+                <div className="absolute top-0 right-0 bg-yellow-100/80 text-yellow-800 text-xs font-bold px-3 py-1 rounded-bl-xl border-l border-b border-yellow-200/30">
                   Needs Review
                 </div>
-                <h3 className="font-bold text-gray-900 text-lg mb-1">{shop.shop_name}</h3>
-                <p className="text-sm text-gray-500 mb-4 line-clamp-2 min-h-[40px]">{shop.address}</p>
-                
-                <div className="flex justify-between items-end mt-4 pt-4 border-t border-gray-100">
-                  <div>
-                    <p className="text-xs text-gray-400 uppercase font-semibold">Owner</p>
-                    <p className="text-sm font-medium text-gray-900">{shop.profiles?.full_name}</p>
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Store className="text-yellow-600 shrink-0" size={18} />
+                    <h3 className="font-bold text-gray-900 text-lg group-hover:text-brand transition-colors line-clamp-1">{shop.shop_name}</h3>
                   </div>
-                  <button 
-                    onClick={() => approveShop(shop.id)}
-                    className="bg-brand text-white text-sm font-semibold py-2 px-4 rounded-lg flex items-center hover:bg-brand-dark transition-colors"
-                  >
-                    <Check size={16} className="mr-1" /> Approve
-                  </button>
+                  <p className="text-sm text-gray-500 mb-4 line-clamp-2 min-h-[40px] leading-relaxed">{shop.address}</p>
+                  
+                  {shop.contact_phone && (
+                    <p className="text-xs text-gray-400 mb-1">
+                      <span className="font-semibold text-gray-500">Phone:</span> {shop.contact_phone}
+                    </p>
+                  )}
+                  {shop.gstin && (
+                    <p className="text-xs text-gray-400 mb-1">
+                      <span className="font-semibold text-gray-500">GSTIN:</span> {shop.gstin}
+                    </p>
+                  )}
+                </div>
+                
+                <div className="flex flex-col gap-3 mt-4 pt-4 border-t border-gray-100/80">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Owner</p>
+                      <p className="text-sm font-semibold text-gray-800">{shop.profiles?.full_name || "Unknown Owner"}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Link 
+                      href={`/admin/shops/${shop.id}`}
+                      className="flex-1 border border-gray-200 hover:border-gray-300 text-gray-700 hover:bg-gray-50 text-xs font-semibold py-2.5 px-3 rounded-xl flex items-center justify-center transition-all"
+                    >
+                      <Eye size={14} className="mr-1.5" /> Review Inventory
+                    </Link>
+                    <button 
+                      onClick={() => approveShop(shop.id)}
+                      className="bg-brand hover:bg-brand-dark text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center justify-center transition-colors shadow-sm shrink-0"
+                    >
+                      <Check size={14} className="mr-1" /> Approve
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -107,28 +137,40 @@ export default function AdminUsersPage() {
       {pendingAgents.length > 0 && (
         <div className="mb-10">
           <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-            <span className="w-2 h-2 rounded-full bg-orange-500 mr-2"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 mr-2 shadow-sm animate-pulse"></span>
             Pending Delivery Agents
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {pendingAgents.map(agent => (
-              <div key={agent.id} className="bg-white p-5 rounded-xl border-2 border-orange-100 shadow-sm relative overflow-hidden">
-                <div className="absolute top-0 right-0 bg-orange-100 text-orange-800 text-xs font-bold px-3 py-1 rounded-bl-lg">
+              <div key={agent.id} className="bg-white p-6 rounded-2xl border border-orange-200/60 shadow-sm relative overflow-hidden flex flex-col justify-between hover:shadow-md transition-all duration-200">
+                <div className="absolute top-0 right-0 bg-orange-100/80 text-orange-800 text-xs font-bold px-3 py-1 rounded-bl-xl border-l border-b border-orange-200/30">
                   Needs Review
                 </div>
-                <h3 className="font-bold text-gray-900 text-lg mb-1">{agent.full_name}</h3>
-                <p className="text-sm text-gray-500 mb-4 line-clamp-2 min-h-[40px]">{agent.phone}</p>
-                
-                <div className="flex justify-between items-end mt-4 pt-4 border-t border-gray-100">
-                  <div className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600 font-semibold">
-                    Delivery Agent
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <UserIcon className="text-orange-600 shrink-0" size={18} />
+                    <h3 className="font-bold text-gray-900 text-lg line-clamp-1">{agent.full_name}</h3>
                   </div>
-                  <button 
-                    onClick={() => approveAgent(agent.id)}
-                    className="bg-brand text-white text-sm font-semibold py-2 px-4 rounded-lg flex items-center hover:bg-brand-dark transition-colors"
-                  >
-                    <Check size={16} className="mr-1" /> Approve
-                  </button>
+                  <p className="text-sm text-gray-500 mb-4 line-clamp-2 leading-relaxed">
+                    <span className="font-semibold text-gray-600">Phone:</span> {agent.phone || "No phone provided"}
+                  </p>
+                  <p className="text-xs text-gray-400 mb-1">
+                    <span className="font-semibold text-gray-500">Address:</span> {agent.address || "No address listed"}
+                  </p>
+                </div>
+                
+                <div className="flex flex-col gap-3 mt-4 pt-4 border-t border-gray-100/80">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] bg-orange-50 text-orange-700 font-bold px-2 py-1 rounded-lg border border-orange-100/50 uppercase tracking-wider">
+                      Delivery Agent
+                    </span>
+                    <button 
+                      onClick={() => approveAgent(agent.id)}
+                      className="bg-brand hover:bg-brand-dark text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center justify-center transition-colors shadow-sm"
+                    >
+                      <Check size={14} className="mr-1" /> Approve
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { MapPin, Package, CheckCircle2, Navigation, IndianRupee, Power, Store as StoreIcon } from "lucide-react";
+import { MapPin, Package, CheckCircle2, Navigation, IndianRupee, Power, Store as StoreIcon, ExternalLink } from "lucide-react";
 
 export default function DeliveryDashboard() {
   const router = useRouter();
@@ -14,6 +14,34 @@ export default function DeliveryDashboard() {
 
   useEffect(() => {
     const supabase = createClient();
+    let currentUserId: string | null = null;
+
+    async function fetchOrders(userId: string) {
+      const { data } = await supabase
+        .from("orders")
+        .select(`
+          *,
+          shops (
+            shop_name,
+            address,
+            contact_phone,
+            owner_id,
+            location
+          ),
+          profiles!orders_customer_id_fkey (full_name, phone)
+        `)
+        .in('status', ['ready', 'arrived_at_shop', 'picked_up'])
+        .order("created_at", { ascending: true });
+
+      if (data) {
+        const validOrders = data.filter((o: any) =>
+          (o.status === 'ready' && !o.delivery_agent_id) ||
+          (o.delivery_agent_id === userId)
+        );
+        setOrders(validOrders);
+      }
+      setLoading(false);
+    }
 
     async function loadDashboard() {
       const { data: { session } } = await supabase.auth.getSession();
@@ -22,64 +50,35 @@ export default function DeliveryDashboard() {
         return;
       }
 
+      currentUserId = session.user.id;
       setUser(session.user);
-      
-      // Fetch profile for online status
+
       const { data: profileData } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", session.user.id)
         .single();
-        
+
       setProfile(profileData);
-      fetchOrders(session.user.id);
-    }
-
-    async function fetchOrders(userId: string) {
-      // Fetch orders that are 'ready', 'arrived_at_shop', or 'picked_up'
-      const { data, error } = await supabase
-        .from("orders")
-        .select(`
-          *,
-          shops (
-            shop_name,
-            address,
-            phone,
-            owner_id
-          ),
-          profiles!orders_customer_id_fkey (full_name, phone)
-        `)
-        .in('status', ['ready', 'arrived_at_shop', 'picked_up'])
-        .order("created_at", { ascending: true });
-
-      if (data) {
-        // Filter out orders assigned to someone else
-        const validOrders = data.filter((o: any) => 
-          (o.status === 'ready' && !o.delivery_agent_id) || 
-          (o.delivery_agent_id === userId)
-        );
-        setOrders(validOrders);
-      }
-      setLoading(false);
-
-      // Subscribe to Realtime to see updates immediately
-      const channel = supabase
-        .channel(`delivery_orders`)
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'orders' },
-          () => {
-            fetchOrders(userId);
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
+      await fetchOrders(session.user.id);
     }
 
     loadDashboard();
+
+    const channel = supabase
+      .channel(`delivery_orders_live`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => {
+          if (currentUserId) fetchOrders(currentUserId);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [router]);
 
   const toggleOnlineStatus = async () => {
@@ -139,23 +138,33 @@ export default function DeliveryDashboard() {
       return;
     }
 
-    // 2. Calculate and insert earnings for the Shop Owner
+    const commissionRate = 0.10; // 10% platform fee
+
+    // 2. Insert earnings for the Shop Owner (90% of order)
     const shopOwnerId = order.shops?.owner_id;
     if (shopOwnerId) {
-      const commissionRate = 0.10; // 10% platform fee
-      const shopEarnings = order.total_amount * (1 - commissionRate);
-      
+      const shopEarnings = parseFloat(order.total_amount) * (1 - commissionRate);
       await (supabase.from("earnings") as any)
         .insert({
           user_id: shopOwnerId,
           amount: shopEarnings,
-          description: `Order #${order.id.split('-')[0]} (after 10% commission)`
+          description: `Order #${order.id.split('-')[0]} payout (after 10% platform fee)`
+        });
+    }
+
+    // 3. Insert earnings for the Delivery Agent (fixed ₹20 delivery fee)
+    if (user) {
+      await (supabase.from("earnings") as any)
+        .insert({
+          user_id: user.id,
+          amount: 20,
+          description: `Delivery fee for Order #${order.id.split('-')[0]}`
         });
     }
 
     // Optimistic remove from active list
     setOrders(prev => prev.filter(o => o.id !== order.id));
-    alert("Delivery completed successfully! Great job.");
+    alert("Delivery completed! ₹20 has been added to your earnings.");
   };
 
   if (loading) return <div className="p-8 text-center">Loading dashboard...</div>;
@@ -221,30 +230,52 @@ export default function DeliveryDashboard() {
                   </div>
 
                   <div className="space-y-3 mb-4 text-sm">
-                    {/* From */}
-                    <div className="flex items-start">
-                      <div className="mt-0.5 mr-2 text-gray-400">
-                        <StoreIcon size={16} />
+                    {/* From: Shop */}
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start">
+                        <div className="mt-0.5 mr-2 text-gray-400">
+                          <StoreIcon size={16} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Pickup From</p>
+                          <p className="font-semibold text-gray-900">{order.shops?.shop_name}</p>
+                          <p className="text-xs text-gray-600 line-clamp-2">{order.shops?.address}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Pickup From</p>
-                        <p className="font-semibold text-gray-900">{order.shops?.shop_name}</p>
-                        <p className="text-xs text-gray-600 line-clamp-2">{order.shops?.address}</p>
-                      </div>
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.shops?.shop_name + ' ' + order.shops?.address)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-2 text-blue-600 shrink-0 p-1 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Navigate to shop"
+                      >
+                        <ExternalLink size={14} />
+                      </a>
                     </div>
 
                     <div className="ml-2 w-0.5 h-4 bg-gray-200"></div>
 
-                    {/* To */}
-                    <div className="flex items-start">
-                      <div className="mt-0.5 mr-2 text-brand">
-                        <MapPin size={16} />
+                    {/* To: Customer */}
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start">
+                        <div className="mt-0.5 mr-2 text-brand">
+                          <MapPin size={16} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Deliver To</p>
+                          <p className="font-semibold text-gray-900">{order.profiles?.full_name || 'Customer'}</p>
+                          <p className="text-xs text-gray-600 line-clamp-2">{order.delivery_address}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Deliver To</p>
-                        <p className="font-semibold text-gray-900">{order.profiles?.full_name || 'Customer'}</p>
-                        <p className="text-xs text-gray-600 line-clamp-2">{order.delivery_address}</p>
-                      </div>
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.delivery_address)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-2 text-brand shrink-0 p-1 hover:bg-brand/10 rounded-lg transition-colors"
+                        title="Navigate to delivery address"
+                      >
+                        <ExternalLink size={14} />
+                      </a>
                     </div>
                   </div>
 

@@ -3,6 +3,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Drop tables if they exist (for clean re-runs if needed)
+DROP TABLE IF EXISTS disputes CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS earnings CASCADE;
 DROP TABLE IF EXISTS delivery_assignments CASCADE;
@@ -31,7 +32,9 @@ CREATE TABLE shops (
     owner_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
     shop_name TEXT NOT NULL,
     address TEXT NOT NULL,
-    location GEOMETRY(Point, 4326) NOT NULL,
+    contact_phone TEXT,
+    gstin TEXT,
+    location GEOMETRY(Point, 4326),
     pincode TEXT,
     is_approved BOOLEAN DEFAULT FALSE,
     rating DECIMAL(3,2) DEFAULT 0,
@@ -68,7 +71,7 @@ CREATE TABLE orders (
     shop_id UUID REFERENCES shops(id),
     delivery_agent_id UUID REFERENCES profiles(id),
     total_amount DECIMAL(10,2),
-    status TEXT CHECK (status IN ('pending', 'accepted', 'ready', 'picked_up', 'delivered', 'cancelled', 'rejected')),
+    status TEXT CHECK (status IN ('pending', 'accepted', 'ready', 'arrived_at_shop', 'picked_up', 'delivered', 'cancelled', 'rejected')),
     delivery_address TEXT,
     customer_location GEOMETRY(Point, 4326),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -110,6 +113,15 @@ CREATE TABLE notifications (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE TABLE disputes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    status TEXT CHECK (status IN ('open', 'resolved', 'dismissed')) DEFAULT 'open',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Important Indexing (Performance Optimization)
 CREATE INDEX idx_shops_location ON shops USING GIST(location);
 CREATE INDEX idx_profiles_location ON profiles USING GIST(location);
@@ -123,8 +135,12 @@ CREATE INDEX idx_orders_created ON orders(created_at);
 
 CREATE INDEX idx_inventory_available ON shop_inventory(shop_id, is_available);
 
+CREATE INDEX idx_disputes_order ON disputes(order_id);
+CREATE INDEX idx_disputes_user ON disputes(user_id);
+
 -- Set up Realtime
 alter publication supabase_realtime add table orders;
 alter publication supabase_realtime add table shop_inventory;
 alter publication supabase_realtime add table notifications;
 alter publication supabase_realtime add table delivery_assignments;
+alter publication supabase_realtime add table disputes;

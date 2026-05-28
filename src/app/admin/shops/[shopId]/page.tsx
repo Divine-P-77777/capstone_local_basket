@@ -1,48 +1,117 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { ArrowLeft, Store, Package, AlertCircle } from "lucide-react";
+import { ArrowLeft, Store, Package, AlertCircle, Check, Clock, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 export default function AdminShopOversightPage() {
   const { shopId } = useParams();
+  const router = useRouter();
   const [shop, setShop] = useState<any>(null);
   const [inventory, setInventory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [approving, setApproving] = useState(false);
+  const [approvedSuccess, setApprovedSuccess] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
-  useEffect(() => {
-    async function fetchShopDetails() {
-      const supabase = createClient();
-      
-      // Fetch shop details
-      const { data: shopData } = await supabase
-        .from("shops")
-        .select("*, profiles(full_name, phone, email)")
-        .eq("id", shopId as string)
-        .single();
+  const fetchShopDetails = useCallback(async () => {
+    if (!shopId) return;
+    setLoading(true);
+    setErrorMsg(null);
 
-      if (shopData) {
-        setShop(shopData);
-        
-        // Fetch inventory
-        const { data: invData } = await supabase
-          .from("shop_inventory")
-          .select("*, products(*)")
-          .eq("shop_id", shopId as string)
-          .order("updated_at", { ascending: false });
-          
-        if (invData) setInventory(invData);
+    const supabase = createClient();
+
+    // Wait for session to be hydrated on client-side navigation
+    await supabase.auth.getSession();
+
+    // Use explicit FK hint (profiles!owner_id) to avoid PostgREST
+    // ambiguous relationship error that occurs on soft navigation
+    const { data: shopData, error: shopError } = await supabase
+      .from("shops")
+      .select("*, profiles!owner_id(full_name, phone)")
+      .eq("id", shopId as string)
+      .single();
+
+    if (shopError) {
+      // PGRST116 = no rows found; anything else is a network/auth error
+      if (shopError.code === 'PGRST116') {
+        setErrorMsg("No shop found with this ID. It may have been deleted.");
+      } else {
+        setErrorMsg(`Failed to load shop details: ${shopError.message} (${shopError.code})`);
       }
       setLoading(false);
+      return;
     }
 
-    if (shopId) fetchShopDetails();
+    if (shopData) {
+      setShop(shopData);
+
+      const { data: invData, error: invError } = await supabase
+        .from("shop_inventory")
+        .select("*, products(*)")
+        .eq("shop_id", shopId as string)
+        .order("updated_at", { ascending: false });
+
+      if (invError) {
+        setErrorMsg("Failed to load inventory: " + invError.message);
+      } else if (invData) {
+        setInventory(invData);
+      }
+    } else {
+      setErrorMsg("Shop record not found in database.");
+    }
+    setLoading(false);
   }, [shopId]);
 
+  useEffect(() => {
+    fetchShopDetails();
+  }, [fetchShopDetails, retryCount]);
+
+  const approveShop = async () => {
+    setApproving(true);
+    const supabase = createClient();
+    const { error } = await (supabase.from("shops") as any)
+      .update({ is_approved: true })
+      .eq("id", shopId as string);
+
+    if (!error) {
+      setApprovedSuccess(true);
+      setShop((prev: any) => ({ ...prev, is_approved: true }));
+      // Redirect back to users list
+      setTimeout(() => {
+        router.push("/admin/users");
+      }, 1500);
+    } else {
+      alert(error.message);
+      setApproving(false);
+    }
+  };
+
   if (loading) return <div className="p-8 text-gray-500">Loading shop details...</div>;
-  if (!shop) return <div className="p-8 text-red-500">Shop not found.</div>;
+
+  if (errorMsg || !shop) {
+    return (
+      <div className="p-8 max-w-xl mx-auto mt-12 bg-red-50 border border-red-200 rounded-3xl text-center">
+        <AlertCircle size={40} className="text-red-500 mx-auto mb-4" />
+        <h3 className="text-lg font-bold text-red-900 mb-2">Error Loading Shop</h3>
+        <p className="text-sm text-red-700 mb-6">{errorMsg || "Shop not found."}</p>
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <button
+            onClick={() => setRetryCount(c => c + 1)}
+            className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2.5 px-5 rounded-xl inline-flex items-center transition-colors"
+          >
+            <RefreshCw size={16} className="mr-1.5" /> Retry
+          </button>
+          <Link href="/admin/users" className="border border-red-300 text-red-700 hover:bg-red-100 text-sm font-semibold py-2.5 px-5 rounded-xl inline-flex items-center transition-colors">
+            <ArrowLeft size={16} className="mr-1.5" /> Back to Users & Shops
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto pb-12">
@@ -61,11 +130,56 @@ export default function AdminShopOversightPage() {
         </div>
       </div>
 
+      {!shop.is_approved && (
+        <div className="mb-8 bg-gradient-to-r from-amber-50 to-yellow-50/50 border border-yellow-200 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-yellow-100/80 text-yellow-700 flex items-center justify-center shrink-0 border border-yellow-200/50">
+              <Clock size={24} className="stroke-[2.5]" />
+            </div>
+            <div>
+              <h3 className="font-bold text-yellow-900 text-lg">Shop Pending Approval</h3>
+              <p className="text-sm text-yellow-700 mt-1 max-w-2xl leading-relaxed">
+                Review this shop's registered info and catalog inventory below. Once satisfied that the vendor's details are complete, grant active status on the platform.
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={approveShop}
+            disabled={approving || approvedSuccess}
+            className="bg-brand hover:bg-brand-dark text-white font-bold py-3.5 px-6 rounded-2xl flex items-center justify-center transition-all shadow-sm active:scale-[0.98] disabled:opacity-75 min-w-[160px] self-start md:self-center"
+          >
+            {approving ? (
+              <span className="flex items-center">
+                <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin mr-2"></span>
+                Approving...
+              </span>
+            ) : approvedSuccess ? (
+              <span className="flex items-center text-green-100">
+                <Check size={18} className="mr-1.5 stroke-[2.5]" /> Approved!
+              </span>
+            ) : (
+              <span className="flex items-center">
+                <Check size={18} className="mr-1.5 stroke-[2.5]" /> Approve Shop
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Owner Details</h3>
           <p className="font-semibold text-gray-900">{shop.profiles?.full_name}</p>
           <p className="text-sm text-gray-500">{shop.profiles?.phone}</p>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Verification Info</h3>
+          <p className="text-sm text-gray-900 font-semibold">
+            <span className="text-gray-400 font-medium mr-1.5">Phone:</span> {shop.contact_phone || "Not specified"}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">
+            <span className="text-gray-400 font-medium mr-1.5">GSTIN:</span> {shop.gstin || "Not provided"}
+          </p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Shop Status</h3>
