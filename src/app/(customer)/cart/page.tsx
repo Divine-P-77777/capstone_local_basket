@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCart } from "@/store/useCart";
 import { CartItemCard } from "@/components/customer/CartItemCard";
 import { createClient } from "@/lib/supabase/client";
-import { ArrowLeft, MapPin, ShoppingBag, Navigation } from "lucide-react";
+import { ArrowLeft, MapPin, ShoppingBag, Navigation, CheckCircle2 } from "lucide-react";
 
 export default function CartPage() {
   const router = useRouter();
@@ -17,6 +17,7 @@ export default function CartPage() {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [gpsDetected, setGpsDetected] = useState(false);
   const [detectingGps, setDetectingGps] = useState(false);
+  const [orderConfirmedId, setOrderConfirmedId] = useState<string | null>(null);
 
   const cartTotal = getTotal();
   const deliveryFee = 20; // Fixed delivery fee for now
@@ -121,7 +122,10 @@ export default function CartPage() {
         }
       }
 
-      // 1. Create the order with coordinates
+      // Generate a 6-digit random OTP for delivery verification
+      const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // 1. Create the order with coordinates and OTP
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
@@ -131,6 +135,7 @@ export default function CartPage() {
           status: "pending",
           delivery_address: address,
           customer_location: finalLocation,
+          delivery_otp: deliveryOtp,
         } as any)
         .select()
         .single();
@@ -151,9 +156,14 @@ export default function CartPage() {
 
       if (itemsError) throw itemsError;
 
-      // 3. Clear cart and redirect to tracking page
+      // 3. Clear cart and show success popup
       clearCart();
-      router.push(`/orders/${(order as any).id}`);
+      setOrderConfirmedId((order as any).id);
+      
+      // Redirect after 2 seconds
+      setTimeout(() => {
+        router.push(`/orders/${(order as any).id}`);
+      }, 2500);
     } catch (err: any) {
       console.error("Order placement failed:", err);
       setError(err.message || "Failed to place order. Please try again.");
@@ -276,6 +286,22 @@ export default function CartPage() {
           </button>
         </div>
       </div>
+
+      {/* Order Confirmation Popup */}
+      {orderConfirmedId && (
+        <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-5">
+              <CheckCircle2 size={40} className="text-green-500" />
+            </div>
+            <h2 className="text-2xl font-black text-gray-900 mb-2">Order Confirmed!</h2>
+            <p className="text-gray-500 text-sm mb-6">
+              Your order has been placed successfully. We are redirecting you to the tracking page...
+            </p>
+            <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin mx-auto"></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

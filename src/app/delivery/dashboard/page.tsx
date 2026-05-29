@@ -11,6 +11,48 @@ export default function DeliveryDashboard() {
   const [profile, setProfile] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // OTP Verification state
+  const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
+  const [otpValue, setOtpValue] = useState("");
+  const [otpError, setOtpError] = useState("");
+
+  // Navigation popup state
+  const [navPopup, setNavPopup] = useState<{
+    title: string;
+    address: string;
+    lat: number | null;
+    lng: number | null;
+  } | null>(null);
+
+  // Helper to parse PostGIS GeoJSON or WKT into lat/lng
+  const parseLocation = (loc: any): { lat: number; lng: number } | null => {
+    if (!loc) return null;
+    if (typeof loc === 'object' && loc.type === 'Point' && Array.isArray(loc.coordinates)) {
+      return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
+    }
+    if (typeof loc === 'string') {
+      const m = loc.match(/POINT\(([^ ]+)\s+([^)]+)\)/);
+      if (m) return { lat: parseFloat(m[2]), lng: parseFloat(m[1]) };
+    }
+    return null;
+  };
+
+  // Open Google Maps turn-by-turn navigation
+  const openGoogleMapsNav = (lat: number | null, lng: number | null, address: string) => {
+    if (lat && lng) {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`, '_blank');
+    } else {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`, '_blank');
+    }
+  };
+
+  // Request notification permission on mount
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+      Notification.requestPermission();
+    }
+  }, []);
 
   useEffect(() => {
     const supabase = createClient();
@@ -70,8 +112,22 @@ export default function DeliveryDashboard() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
-        () => {
+        (payload: any) => {
           if (currentUserId) fetchOrders(currentUserId);
+          
+          // If a new order becomes ready, notify the delivery agent
+          if (
+            payload.eventType === 'UPDATE' && 
+            payload.new.status === 'ready' && 
+            payload.old.status !== 'ready' &&
+            !payload.new.delivery_agent_id
+          ) {
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification("New Delivery Request! 🛵", {
+                body: "A new order is ready for pickup near you. Check your dashboard to accept it."
+              });
+            }
+          }
         }
       )
       .subscribe();
@@ -126,6 +182,22 @@ export default function DeliveryDashboard() {
   };
 
   const markDelivered = async (order: any) => {
+    // Check OTP
+    if (!order.delivery_otp) {
+      // For backwards compatibility with old orders that don't have OTP
+      completeDelivery(order);
+      return;
+    }
+
+    if (otpValue !== order.delivery_otp) {
+      setOtpError("Incorrect PIN. Please check with the customer.");
+      return;
+    }
+
+    completeDelivery(order);
+  };
+
+  const completeDelivery = async (order: any) => {
     const supabase = createClient();
     
     // 1. Mark order as delivered
@@ -164,6 +236,9 @@ export default function DeliveryDashboard() {
 
     // Optimistic remove from active list
     setOrders(prev => prev.filter(o => o.id !== order.id));
+    setVerifyingOrderId(null);
+    setOtpValue("");
+    setOtpError("");
     alert("Delivery completed! ₹20 has been added to your earnings.");
   };
 
@@ -280,12 +355,28 @@ export default function DeliveryDashboard() {
                   </div>
 
                   {order.status === 'ready' && (
-                    <button 
-                      onClick={() => updateOrderStatus(order.id, 'arrived_at_shop')}
-                      className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl flex items-center justify-center shadow-sm hover:bg-blue-700 transition-all active:scale-[0.98]"
-                    >
-                      <Navigation size={18} className="mr-2" /> Arrived at Shop
-                    </button>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          const loc = parseLocation(order.shops?.location);
+                          setNavPopup({
+                            title: `Navigate to ${order.shops?.shop_name}`,
+                            address: order.shops?.address || '',
+                            lat: loc?.lat ?? null,
+                            lng: loc?.lng ?? null,
+                          });
+                        }}
+                        className="flex-1 bg-purple-600 text-white font-bold py-3 rounded-xl flex items-center justify-center shadow-sm hover:bg-purple-700 transition-all active:scale-[0.98]"
+                      >
+                        <Navigation size={18} className="mr-2" /> Navigate to Shop
+                      </button>
+                      <button 
+                        onClick={() => updateOrderStatus(order.id, 'arrived_at_shop')}
+                        className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl flex items-center justify-center shadow-sm hover:bg-blue-700 transition-all active:scale-[0.98]"
+                      >
+                        <CheckCircle2 size={18} className="mr-2" /> Arrived
+                      </button>
+                    </div>
                   )}
                   
                   {order.status === 'arrived_at_shop' && (
@@ -298,12 +389,77 @@ export default function DeliveryDashboard() {
                   )}
 
                   {order.status === 'picked_up' && (
-                    <button 
-                      onClick={() => markDelivered(order)}
-                      className="w-full bg-green-500 text-white font-bold py-3 rounded-xl flex items-center justify-center shadow-sm hover:bg-green-600 transition-all active:scale-[0.98]"
-                    >
-                      <CheckCircle2 size={18} className="mr-2" /> Mark as Delivered
-                    </button>
+                    <>
+                      {/* Navigate to customer button */}
+                      <button
+                        onClick={() => {
+                          const loc = parseLocation(order.customer_location);
+                          setNavPopup({
+                            title: `Navigate to Customer`,
+                            address: order.delivery_address || '',
+                            lat: loc?.lat ?? null,
+                            lng: loc?.lng ?? null,
+                          });
+                        }}
+                        className="w-full bg-brand text-white font-bold py-3 rounded-xl flex items-center justify-center shadow-sm hover:opacity-90 transition-all active:scale-[0.98] mb-2"
+                      >
+                        <Navigation size={18} className="mr-2" /> Navigate to Customer
+                      </button>
+                      {verifyingOrderId === order.id ? (
+                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mt-2">
+                          <p className="text-xs font-bold text-gray-700 mb-2 text-center uppercase tracking-wider">
+                            Enter Customer PIN
+                          </p>
+                          <input 
+                            type="text" 
+                            maxLength={6}
+                            value={otpValue}
+                            onChange={(e) => {
+                              setOtpValue(e.target.value);
+                              setOtpError("");
+                            }}
+                            className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3 text-center text-xl font-bold tracking-[0.2em] outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 mb-2"
+                            placeholder="------"
+                          />
+                          {otpError && (
+                            <p className="text-red-500 text-xs font-semibold text-center mb-3">{otpError}</p>
+                          )}
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => {
+                                setVerifyingOrderId(null);
+                                setOtpValue("");
+                                setOtpError("");
+                              }}
+                              className="flex-1 bg-white border border-gray-200 text-gray-700 font-bold py-2.5 rounded-lg text-sm hover:bg-gray-50"
+                            >
+                              Cancel
+                            </button>
+                            <button 
+                              onClick={() => markDelivered(order)}
+                              disabled={otpValue.length < 4}
+                              className="flex-1 bg-green-500 text-white font-bold py-2.5 rounded-lg text-sm hover:bg-green-600 disabled:opacity-50"
+                            >
+                              Verify
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => {
+                            if (order.delivery_otp) {
+                              setVerifyingOrderId(order.id);
+                            } else {
+                              // Fast path for old orders
+                              markDelivered(order);
+                            }
+                          }}
+                          className="w-full bg-green-500 text-white font-bold py-3 rounded-xl flex items-center justify-center shadow-sm hover:bg-green-600 transition-all active:scale-[0.98]"
+                        >
+                          <CheckCircle2 size={18} className="mr-2" /> Mark as Delivered
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               ))
@@ -369,6 +525,45 @@ export default function DeliveryDashboard() {
         </div>
 
       </div>
+
+      {/* Navigation Popup Modal */}
+      {navPopup && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6">
+            {/* Icon */}
+            <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Navigation size={28} className="text-purple-600" />
+            </div>
+
+            <h2 className="text-xl font-black text-gray-900 text-center mb-1">{navPopup.title}</h2>
+            <p className="text-sm text-gray-500 text-center line-clamp-2 mb-5">{navPopup.address}</p>
+
+            {navPopup.lat && navPopup.lng && (
+              <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 mb-5">
+                <MapPin size={14} className="text-gray-400 shrink-0" />
+                <span className="text-xs text-gray-500 font-mono">
+                  {navPopup.lat.toFixed(4)}, {navPopup.lng.toFixed(4)}
+                </span>
+              </div>
+            )}
+
+            <button
+              onClick={() => openGoogleMapsNav(navPopup.lat, navPopup.lng, navPopup.address)}
+              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 shadow-lg mb-3 active:scale-[0.98] transition-all"
+            >
+              <Navigation size={18} />
+              Open in Google Maps
+            </button>
+
+            <button
+              onClick={() => setNavPopup(null)}
+              className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-xl text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

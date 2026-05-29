@@ -79,7 +79,8 @@ export default function RegisterPage() {
       options: {
         data: {
           full_name: fullName,
-          role: role, // ← critical: read by the handle_new_user trigger
+          user_role: role, // Use user_role to avoid Supabase stripping the reserved 'role' keyword
+          role: role,      // Keep role just in case
         },
       },
     });
@@ -93,20 +94,29 @@ export default function RegisterPage() {
     if (data.user) {
       // Upsert profile as a safety net (handles cases where trigger
       // hasn't fired yet or the user already existed)
-      await supabase.from("profiles").upsert({
+      const { error: profileError } = await supabase.from("profiles").upsert({
         id: data.user.id,
         full_name: fullName,
         role: role,
       } as any);
 
+      if (profileError) {
+        console.error("Failed to sync profile role:", profileError);
+        // We can optionally show an error or retry here.
+      }
+
       // For shop owners, create a draft shop pending admin approval
       if (role === "shop_owner") {
-        await supabase.from("shops").insert({
+        const { error: shopError } = await supabase.from("shops").insert({
           owner_id: data.user.id,
           shop_name: `${fullName}'s Shop`,
           address: "Pending",
           location: "POINT(77.0266 28.4595)",
         } as any);
+
+        if (shopError) {
+           console.error("Failed to create shop:", shopError);
+        }
       }
 
       if (role === "shop_owner" || role === "delivery_agent") {

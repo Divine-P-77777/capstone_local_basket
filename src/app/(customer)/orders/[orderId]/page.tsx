@@ -6,6 +6,9 @@ import { createClient } from "@/lib/supabase/client";
 import { ArrowLeft, Clock, CheckCircle2, MapPin, Package, XCircle, Store, X } from "lucide-react";
 import { format } from "date-fns";
 import Image from "next/image";
+import dynamic from "next/dynamic";
+
+const MapComponent = dynamic(() => import("@/components/MapComponent"), { ssr: false, loading: () => <div className="h-48 w-full bg-gray-100 animate-pulse rounded-xl" /> });
 
 export default function OrderTrackingPage() {
   const params = useParams();
@@ -14,11 +17,15 @@ export default function OrderTrackingPage() {
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
 
     async function fetchOrder() {
+      // Ensure the browser client has fully restored the session before executing RLS query
+      const { data: { session } } = await supabase.auth.getSession();
+      
       const { data, error } = await supabase
         .from("orders")
         .select(`
@@ -26,7 +33,8 @@ export default function OrderTrackingPage() {
           shops (
             shop_name,
             address,
-            phone
+            contact_phone,
+            location
           ),
           order_items (
             quantity,
@@ -41,8 +49,14 @@ export default function OrderTrackingPage() {
         .eq("id", orderId)
         .single();
 
+      if (error) {
+        console.error("Error fetching order:", error);
+        setFetchError(error.message || JSON.stringify(error));
+      }
+
       if (data) {
         setOrder(data);
+        setFetchError(null);
       }
       setLoading(false);
     }
@@ -90,7 +104,20 @@ export default function OrderTrackingPage() {
   };
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading order details...</div>;
-  if (!order) return <div className="p-8 text-center text-red-500">Order not found</div>;
+  if (!order) return (
+    <div className="p-8 flex flex-col items-center justify-center min-h-screen">
+      <XCircle size={48} className="text-red-500 mb-4" />
+      <h2 className="text-xl font-bold text-gray-900 mb-2">Order not found</h2>
+      <p className="text-gray-500 mb-4 text-center max-w-sm">We couldn't find this order. Please ensure you are logged in as the customer who placed it.</p>
+      {fetchError && (
+        <div className="bg-red-50 text-red-700 text-xs p-4 rounded-lg font-mono mb-6 max-w-sm overflow-x-auto text-left w-full border border-red-100">
+          <p className="font-bold mb-1 uppercase tracking-wider">Debug Error Info:</p>
+          {fetchError}
+        </div>
+      )}
+      <button onClick={() => router.push('/home')} className="bg-brand text-white px-6 py-2 rounded-xl font-bold">Go to Home</button>
+    </div>
+  );
 
   const isCancelled = order.status === 'cancelled' || order.status === 'rejected';
   
@@ -186,6 +213,17 @@ export default function OrderTrackingPage() {
           )}
         </div>
 
+        {/* Delivery OTP Card (Only show when out for delivery) */}
+        {order.status === 'picked_up' && order.delivery_otp && (
+          <div className="bg-brand/10 rounded-xl p-5 shadow-sm border border-brand/20 mb-4 flex flex-col items-center justify-center text-center">
+            <h3 className="font-bold text-brand-dark text-sm mb-1 uppercase tracking-wider">Delivery Verification PIN</h3>
+            <p className="text-xs text-brand-dark/80 mb-3">Share this PIN with the delivery partner upon arrival</p>
+            <div className="text-4xl font-black tracking-[0.2em] text-brand bg-white px-6 py-3 rounded-xl border-2 border-brand/20 shadow-inner">
+              {order.delivery_otp}
+            </div>
+          </div>
+        )}
+
         {/* Shop Info */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-4 flex items-center">
           <div className="w-10 h-10 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center mr-3">
@@ -204,7 +242,11 @@ export default function OrderTrackingPage() {
           </div>
           <div className="flex-1">
             <h3 className="font-bold text-gray-900 text-sm mb-1">Delivery Address</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">{order.delivery_address}</p>
+            <p className="text-sm text-gray-600 leading-relaxed mb-3">{order.delivery_address}</p>
+            <MapComponent 
+              customerLocation={order.customer_location} 
+              shopLocation={order.shops?.location} 
+            />
           </div>
         </div>
 
